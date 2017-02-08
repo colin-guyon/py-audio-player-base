@@ -6,7 +6,7 @@ from time import time, sleep
 import shutil
 import re
 from threading import Thread, RLock
-from random import shuffle
+import random
 
 __all__ = ('PlayObjectInterface', 'AudioPlayerInterface',
            'FadeInThread', 'AutoStopThread')
@@ -138,21 +138,25 @@ class AudioPlayerInterface(object):
     #: :class:`PlayObjectInterface` interface.
     PlayObjectClass = None
 
-    def __init__(self, root_files_dir='', default_audio_files_dir='',
-                 removed_files_backup_dir='', init_volume=50, mono=False,
-                 notify_progression_interval=5):
+    def __init__(self,
+                 default_files_dir='.',
+                 removed_files_backup_dir=None,
+                 init_volume_level=None, mono=False,
+                 notify_progression_interval=None):
         # Using a re-entrant lock instead of simple lock to be able
         # to have nested "with self._lock" without be blocked
         # (the code is a little bit more short and clear)
         self._lock = RLock()
 
         #: (`str`) the default directory to find audio files
-        self.default_audio_files_dir = os.path.abspath(default_audio_files_dir)
-        #: (`str`) the root files directory (could point to a usb key for ex.)
-        self.root_files_dir = os.path.abspath(root_files_dir)
-        #: (`str`) the backup directory where to place the files that are
-        #: removed using :meth:`.remove_current`.
-        self.removed_files_backup_dir = removed_files_backup_dir
+        self.default_files_dir = os.path.abspath(default_files_dir)
+        #: (`str`) the backup directory where to place the audio files that are
+        #: removed by :meth:`.remove_current`.
+        if removed_files_backup_dir:
+            self.removed_files_backup_dir = \
+                os.path.abspath(removed_files_backup_dir)
+        else:
+            self.removed_files_backup_dir = None
 
         #: (`list` of `str`) the current playlist of music (absolute file paths)
         self.queue = []
@@ -177,8 +181,8 @@ class AudioPlayerInterface(object):
         #: will be passed to the :meth:`.PlayObjectClass.open` method).
         self.mono = mono
 
-        #: (``int`` or ``float``) Interval at which call :meth:`._notify_progression`
-        #: during the playback.
+        #: (``int`` or ``float``) Interval at which call
+        #: :meth:`._notify_progression` during the playback.
         self.notify_progression_interval = notify_progression_interval
 
         #: Function to be externally set that would be called each time
@@ -186,8 +190,8 @@ class AudioPlayerInterface(object):
         self.volume_update_handler = None
 
         self._volume = None
-        if init_volume is not None:
-            self.set_volume(init_volume, notify=False)
+        if init_volume_level is not None:
+            self.set_volume(init_volume_level, notify=False)
 
     @property
     def current(self):
@@ -239,38 +243,29 @@ class AudioPlayerInterface(object):
         if is_stream(path):
             return path
         # local file
-        if path.startswith(self.default_audio_files_dir):
-            path = os.path.relpath(path, self.default_audio_files_dir)
+        if path.startswith(self.default_files_dir):
+            path = os.path.relpath(path, self.default_files_dir)
         return os.path.splitext(path)[0]
 
-    def play(self, path=None, playlist=False, queue=None, loop=False, random=False,
-             fade_in=False):
+    def play(self, path=None, queue=None, loop=False,
+             shuffle=False, fade_in=False):
         """"
         Play a new music file, or folder, or queue from a search ....
         If currently playing, :meth:`stop` is preliminarily called.
 
-        If ``path`` is None, the :attr:`.default_audio_files_dir` is used.
+        If ``path`` is None, the :attr:`.default_files_dir` is used.
 
         Calls :meth:`._do_play_queue` in a new thread.
         """
-        path = path or self.default_audio_files_dir
-
         if self.status != "stopped":
             self.stop()
-            if self._play_thread:
-                # status is stopped, wait to be sure the current play
-                # thread dies
-                self._play_thread.join()
-                self._play_thread = None
 
+        path = path or self.default_files_dir
         with self._lock:
             # save the arguments so that we can easily re-play the same
             # thing later
             self._last_play_args = (
-                [path], dict(playlist=playlist, loop=loop, random=random,
-                             fade_in=fade_in))
-            if self.status != "stopped":
-                self.stop()
+                [path], dict(loop=loop, shuffle=shuffle, fade_in=fade_in))
 
             if queue is not None:
                 # we give a list of files to play
@@ -278,8 +273,8 @@ class AudioPlayerInterface(object):
                 if not self.queue:
                     log.error("empty queue !")
                     return
-                elif random:
-                    shuffle(self.queue)
+                elif shuffle:
+                    random.shuffle(self.queue)
             elif os.path.isdir(path):
                 # Folder of music
                 # self.queue = glob.glob(path + "/*.mp3")
@@ -287,15 +282,11 @@ class AudioPlayerInterface(object):
                               for root, _, file_names in os.walk(path)
                               for file_name in file_names if
                               file_name.endswith('.mp3')]
-                if os.path.exists(join(path, "radios")):
-                    with open(join(path, "radios")) as radios_file:
-                        radios = radios_file.read().splitlines()
-                    self.queue.extend(radios)
                 if not self.queue:
                     log.error("empty queue !")
                     return
-                elif random:
-                    shuffle(self.queue)
+                elif shuffle:
+                    random.shuffle(self.queue)
 
                 if self._stopped_music:
                     # try to play the last stopped music first
@@ -308,7 +299,7 @@ class AudioPlayerInterface(object):
                                     "music %r at the first position of "
                                     "the queue.", self._stopped_music)
             else:
-                # single music (or playlist file)
+                # single file (or playlist file)
                 self.queue = [path]
 
             self.status = "playing"
@@ -336,6 +327,9 @@ class AudioPlayerInterface(object):
 
         while self.status != "stopped":
             with self._lock:
+                if not self.queue:
+                    log.info("Empty queue !")
+                    break
                 try:
                     path = self.queue[self._play_index]
                 except IndexError:
@@ -357,14 +351,15 @@ class AudioPlayerInterface(object):
             try:
                 self._do_configure_output_for_current_track()
 
-                log.info("Playing: " + path)
+                log.info("Playing: %s" % (path,))
 
                 context = {}  # context dict for the current audio track
                 t0 = monotonic()
 
-                # Call the progression handler just before reading/playing the
-                # first audio chunk
-                self._notify_progression(context)
+                if self.notify_progression_interval:
+                    # Call the progression handler just before
+                    # reading/playing the first audio chunk
+                    self._notify_progression(context)
 
                 # read the first chunk of audio data
                 data = play_object.readframes(self.audio_chunk_size)
@@ -379,10 +374,14 @@ class AudioPlayerInterface(object):
 
                     # Regularly call _notify_progression to be able to notify
                     # the progression (for example to update a progress bar)
-                    t1 = monotonic()
-                    if t1 - t0 >= self.notify_progression_interval:
-                        t0 = t1
-                        self._notify_progression(context)
+                    # (not if there is a pending seek which will be
+                    # processed just after)
+                    if (self.notify_progression_interval
+                            and self._seek is not None):
+                        t1 = monotonic()
+                        if t1 - t0 >= self.notify_progression_interval:
+                            t0 = t1
+                            self._notify_progression(context)
 
                     # Write the audio chunk to the audio output.
                     # This method can also be overriden to process the
@@ -399,7 +398,7 @@ class AudioPlayerInterface(object):
                                 log.info("seek detected: %r", seek)
                                 play_object.set_percentage_pos(seek)
                             except:
-                                log.exception()
+                                log.exception("seek exception")
 
                     # Read next chunk of data from music
                     data = play_object.readframes(self.audio_chunk_size)
@@ -409,7 +408,7 @@ class AudioPlayerInterface(object):
                 # reached the end of the playback
                 pass
             except Exception:
-                log.exception()
+                log.exception("exception during play")
             finally:
                 play_object.close()
                 self.play_object = None
@@ -429,6 +428,7 @@ class AudioPlayerInterface(object):
 
         log.debug("end of queue")
         self._do_close_output()
+        log.debug("Status after end of queue: %r", self.status)
 
     def _do_open_output(self):
         """
@@ -494,7 +494,7 @@ class AudioPlayerInterface(object):
 
     def stop(self, save_current=True):
         """ stop the music if any """
-        log.debug('Stop')
+        log.debug('Stop player')
         with self._lock:
             if self.status != "stopped":
                 self._stopped_music = self.current if save_current else None
@@ -508,18 +508,28 @@ class AudioPlayerInterface(object):
                 self._auto_stop_thread.running = False
                 self._auto_stop_thread = None
 
+        if self._play_thread:
+            # Status is stopped, wait to be sure the current play
+            # thread dies (without acquiring self._lock since it may
+            # certainly be done in the play thread, so it would end
+            # to a deadlock).
+            log.debug("Join() play thread")
+            self._play_thread.join()
+            log.debug("done")
+            self._play_thread = None
+
     def _do_stop(self):
         """ Stop the current playing track if any. Called by :meth:`.stop`. """
         self._seek = None
         self._go_prev = False
         self._go_next = False
 
-    def play_pause(self):
+    def play_pause(self, shuffle=False):
         """ play or pause the music """
         log.debug('Play or pause')
         with self._lock:
             if self.status == "stopped":
-                self.play(self.default_audio_files_dir, random=True)
+                self.play(shuffle=shuffle)
             else:
                 self._do_play_pause()
                 self.status = ("paused" if self.status == "playing"
@@ -638,8 +648,8 @@ class AudioPlayerInterface(object):
     def remove_current(self, backup=True):
         """ Remove the current playing file.
 
-        :param backup: whether to move the file to the MUSIC_BACKUP_PATH
-            folder or to simply remove it.
+        :param backup: whether to move the file to the
+            :attr:.`removed_files_backup_dir` folder or to simply remove it.
         :type backup: bool
         """
         with self._lock:
@@ -653,12 +663,20 @@ class AudioPlayerInterface(object):
 
             try:
                 if backup:
-                    if current.startswith(self.default_audio_files_dir):
-                        target_file = join(
-                            self.removed_files_backup_dir,
-                            os.path.relpath(current, self.default_audio_files_dir))
+                    if (not self.removed_files_backup_dir or
+                            not os.path.isdir(self.removed_files_backup_dir)):
+                        raise ValueError("Cannot do a backup: invalid "
+                                         "removed_files_backup_dir. "
+                                         "Do not delete the file.")
+
+                    if current.startswith(self.default_files_dir):
+                        rel_path = os.path.relpath(current,
+                                                   self.default_files_dir)
                     else:
-                        target_file = current
+                        rel_path = current
+                        if current.startswith('/') or current.startswith('\\'):
+                            rel_path = current[1:]
+                    target_file = join(self.removed_files_backup_dir, rel_path)
                     target_folder = os.path.dirname(target_file)
                     if not os.path.exists(target_folder):
                         os.makedirs(target_folder)
@@ -671,17 +689,22 @@ class AudioPlayerInterface(object):
             else:
                 log.info("Successful remove of %r", current)
                 del self.queue[self._play_index]
-                if not self.queue:
-                    log.info("No more music in the playlist !")
-                    self.stop()
-                else:
+                if self.queue:
                     # decrement the play index so that play_next will
                     # play the next song
                     self._play_index -= 1
                     self.play_next()
 
                 self._on_track_removed(current)
-                return True
+
+        if not self.queue:
+            log.info("No more item in the playlist !")
+            # Call stop() outside 'with self._lock' because
+            # it does a join on the current play thread that
+            # may need to acquire the lock.
+            self.stop()
+
+        return True
 
     def _on_track_removed(self, path):
         """
@@ -690,12 +713,18 @@ class AudioPlayerInterface(object):
         """
         pass
 
-    def search_and_play(self, pattern, random=True):
+    def search_and_play(self, pattern, shuffle=True):
         """
         Search musics given a string pattern (regex) and play results if any
         """
         log.info("find music: %r" % pattern)
         t0 = time()
+
+        pattern = pattern.strip()
+        if not pattern or pattern == '*':
+            log.info("Play everything")
+            self.play(shuffle=shuffle)
+            return
 
         if is_stream(pattern):
             # play a web stream
@@ -710,12 +739,12 @@ class AudioPlayerInterface(object):
                 # special '#recent' query allowing to play all files ordered by
                 # modification date (descending)
 
-                # play all recent files in random could be strange ?
-                random = False
+                # play all recent files in shuffle could be strange ?
+                shuffle = False
 
                 queue = [join(root, file_name)
                          for root, _, file_names
-                         in os.walk(self.default_audio_files_dir)
+                         in os.walk(self.default_files_dir)
                          for file_name in file_names
                          if file_name.endswith('.mp3')]
                 queue.sort(key=os.path.getmtime, reverse=True)
@@ -737,7 +766,7 @@ class AudioPlayerInterface(object):
 
             regexp = re.compile("^.*" + pattern, re.IGNORECASE)
 
-            for root, _, file_names in os.walk(self.default_audio_files_dir):
+            for root, _, file_names in os.walk(self.default_files_dir):
                 for file_name in file_names:
                     if not file_name.endswith('.mp3'):
                         # TODO: handle other codecs
@@ -751,7 +780,7 @@ class AudioPlayerInterface(object):
         if not queue:
             log.warning("No results for %r pattern! Don't play", pattern)
         else:
-            self.play(None, queue=queue, random=random)
+            self.play(queue=queue, shuffle=shuffle)
 
 
 class PlayThread(Thread):

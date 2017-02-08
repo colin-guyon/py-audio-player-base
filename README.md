@@ -124,8 +124,7 @@ Other simple usage example
     audio_dir = os.path.join(root_dir, 'music')
     audio_trash_dir = os.path.join(root_dir, 'music_trash')
     
-    player = MyAudioPlayer(root_files_dir=root_dir,
-                           default_audio_files_dir=audio_dir,
+    player = MyAudioPlayer(default_files_dir=audio_dir,
                            removed_files_backup_dir=audio_trash_dir)
     
     player.play_pause()

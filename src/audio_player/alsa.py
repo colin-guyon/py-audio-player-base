@@ -26,11 +26,11 @@ class AlsaAudioPlayer(AudioPlayerInterface):
     #: pyalsaaudio mixers() method)
     mixer_name = 'Master'
 
-    # Alsa mixer for volume control
-    mixer = aa.Mixer(mixer_name)
-
     def __init__(self, *args, **kwargs):
+        # Alsa mixer for volume control
+        self.mixer = aa.Mixer(self.mixer_name)
         log.debug("mixer is %r", self.mixer.mixer())
+        self._output_params = (None, None, None)
         super(AlsaAudioPlayer, self).__init__(*args, **kwargs)
 
     def _do_open_output(self):
@@ -39,20 +39,30 @@ class AlsaAudioPlayer(AudioPlayerInterface):
         """
         log.debug("Open alsa audio output")
         self.output = aa.PCM(aa.PCM_PLAYBACK, aa.PCM_NORMAL)
+        self.output.setformat(aa.PCM_FORMAT_S16_LE)
 
     def _do_configure_output_for_current_track(self):
         """
         Configure the alsa output for the track that will be played.
         """
-        play_object = self.play_object
-        log.info("Configure ALSA output : %s %s %s" % (play_object.num_channels,
-                                                       play_object.sample_rate,
-                                                       self.audio_chunk_size))
         output = self.output
-        output.setchannels(play_object.num_channels)
-        output.setrate(play_object.sample_rate)
-        output.setformat(aa.PCM_FORMAT_S16_LE)
-        output.setperiodsize(self.audio_chunk_size)
+        play_object = self.play_object
+        audio_chunk_size = self.audio_chunk_size
+
+        current_n_channels, current_sample_rate, current_chunk_size = \
+            self._output_params
+        new_n_channels, new_sample_rate, new_chunk_size = \
+            play_object.num_channels, play_object.sample_rate, audio_chunk_size
+
+        if new_n_channels != current_n_channels:
+            output.setchannels(new_n_channels)
+        if new_sample_rate != current_sample_rate:
+            output.setrate(new_sample_rate)
+        if new_chunk_size != current_chunk_size:
+            output.setperiodsize(new_chunk_size)
+
+        self._output_params = (new_n_channels, new_sample_rate, new_chunk_size)
+        log.info("ALSA output config: %s %s %s" % self._output_params)
 
     def _do_close_output(self):
         """

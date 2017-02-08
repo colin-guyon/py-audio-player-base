@@ -1,4 +1,4 @@
-
+import sys
 from time import sleep
 from audio_player.alsa import AlsaAudioPlayer
 from audio_player.pyav import PyAVPlayObject
@@ -13,16 +13,14 @@ class MyAudioPlayer(AlsaAudioPlayer):
         current_percent_pos = self.play_object.get_percentage_pos()
         total_duration_seconds = self.play_object.duration
         current_pos_seconds = int(current_percent_pos / 100. * total_duration_seconds)
-        print(" {:.1f}% (-{:d}s)".\
+        print(" {:.1f}% (-{:d}s)".
               format(current_percent_pos,
                      total_duration_seconds - current_pos_seconds))
 
-PLAYER = MyAudioPlayer(default_audio_files_dir='/run/media/colin/Data/Music',
-                       root_files_dir='/run/media/colin/Data/',
-                       mono=False, init_volume=None,
+PLAYER = MyAudioPlayer(default_files_dir=sys.argv[1],
+                       removed_files_backup_dir='/home/colin/Desktop/music_trash/',
                        notify_progression_interval=1.0)
-
-PLAYER.play(random=True)
+PLAYER.play(shuffle=True)
 
 try:
     while PLAYER.status != 'stopped':
@@ -36,5 +34,11 @@ try:
             PLAYER.play_prev()
         elif r == 'r':
             PLAYER.seek(0)
+        elif r == 'd':
+            PLAYER.remove_current(backup=True)
+        elif r == 'q':
+            PLAYER.stop()
+        elif r.startswith('#'):
+            PLAYER.search_and_play(r[1:])
 except KeyboardInterrupt:
     PLAYER.stop()
