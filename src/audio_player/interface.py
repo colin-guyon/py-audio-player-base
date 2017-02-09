@@ -492,18 +492,33 @@ class AudioPlayerInterface(object):
         """
         pass
 
-    def stop(self, save_current=True):
+    def stop(self, save_current=True, fade_out=False):
         """ stop the music if any """
         log.debug('Stop player')
         with self._lock:
+            fade_thread = self._fade_thread
+            if (fade_out and fade_thread and fade_thread.running
+                    and isinstance(fade_thread, FadeOutThread)):
+                log.debug("A fade out was requested but one is already "
+                          "ongoing... Let's just stop now.")
+                fade_out = False
+            # Anyway Stop the current fade in or out
+            self.stop_volume_fade()
             if self.status != "stopped":
+                if fade_out:
+                    if self.volume == 0:
+                            log.warning("Volume is already equal to 0, "
+                                        "don't need to fade out.")
+                    else:
+                        log.info("Start fade out and return: stop will be done "
+                                 "by the fade out thread")
+                        self.start_volume_fade_out()
+                        return
+
                 self._stopped_music = self.current if save_current else None
                 self._do_stop()
                 self.status = "stopped"
 
-            if self._fade_thread:
-                self._fade_thread.running = False
-                self._fade_thread = None
             if self._auto_stop_thread:
                 self._auto_stop_thread.running = False
                 self._auto_stop_thread = None
@@ -638,10 +653,20 @@ class AudioPlayerInterface(object):
             FadeInThread(lambda: self.volume, self.set_volume)
         t.start()
 
+    def start_volume_fade_out(self):
+        """ Start a thread to fade-out the volume. :meth:`.stop` will
+        be called that the end of the fade.  """
+        # Normally if a FadeThread was running it has been stopped in the
+        # last call of stop() or play(). So directly start a new one:
+        self._fade_thread = t = \
+            FadeOutThread(lambda: self.volume, self.set_volume, self.stop)
+        t.start()
+
     def stop_volume_fade(self):
         """ Stop the thread that fades the volume (if running) """
         with self._lock:
             if self._fade_thread:
+                log.debug("Set running=False on %s", self._fade_thread)
                 self._fade_thread.running = False
                 self._fade_thread = None
 
@@ -832,6 +857,44 @@ class FadeInThread(Thread):
                 return
         if get_volume() < max_vol:
             set_volume(max_vol)
+
+
+class FadeOutThread(Thread):
+    """
+    Thread that slowly decreases the volume
+    """
+    def __init__(self, get_volume_func, set_volume_func, stop_func):
+        Thread.__init__(self)
+        self.running = False
+        self.get_volume = get_volume_func
+        self.set_volume = set_volume_func
+        self.stop_player = stop_func
+        self.daemon = True
+
+    def start(self):
+        self.running = True
+        Thread.start(self)
+
+    def run(self):
+        log.debug("FadeOutThread run")
+        get_volume, set_volume = self.get_volume, self.set_volume
+        orig_volume = get_volume()
+        for vol in xrange(orig_volume, 0, -4):
+            if get_volume() > vol:
+                log.debug("FadeOutThread : set_volume(%s)", vol)
+                set_volume(vol)
+            if not self.running:
+                return
+            sleep(0.5)
+            if not self.running:
+                return
+        if get_volume() > 0:
+            log.debug("FadeOutThread : set_volume(0)")
+            set_volume(0)
+        log.debug("FadeOutThread : stop player")
+        self.stop_player(fade_out=False)
+        # Restore the initial volume
+        set_volume(orig_volume)
 
 
 class AutoStopThread(Thread):
