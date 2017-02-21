@@ -9,7 +9,7 @@ from threading import Thread, RLock
 import random
 
 __all__ = ('PlayObjectInterface', 'AudioPlayerInterface',
-           'FadeInThread', 'AutoStopThread')
+           'FadeInThread', 'SleepTimerThread')
 
 if sys.version_info >= (3,):
     xrange = range  # xrange is range in python 3
@@ -138,6 +138,10 @@ class AudioPlayerInterface(object):
     #: :class:`PlayObjectInterface` interface.
     PlayObjectClass = None
 
+    #: Whether to wait for the end of the current played track before stopping
+    #: playback from a sleep timer.
+    sleep_timer_wait_track_end = False
+
     def __init__(self,
                  default_files_dir='.',
                  removed_files_backup_dir=None,
@@ -170,7 +174,7 @@ class AudioPlayerInterface(object):
         self._stopped_music = None
 
         self._play_thread = None
-        self._auto_stop_thread = None
+        self._sleep_timer_thread = None
         self._fade_thread = None
 
         self._seek = None
@@ -188,6 +192,11 @@ class AudioPlayerInterface(object):
         #: Function to be externally set that would be called each time
         #: :meth:`.set_volume` is called with ``notify=True``
         self.volume_update_handler = None
+
+        #: Function to be externally set that would be called by
+        #: the :class:`SleepTimerThread` while its remaining time decreases
+        #: (each minute)
+        self.sleep_timer_update_handler = None
 
         self._volume = None
         if init_volume_level is not None:
@@ -308,10 +317,7 @@ class AudioPlayerInterface(object):
             self._play_thread.daemon = True
             self._play_thread.start(self)
 
-            if self._auto_stop_thread:
-                self._auto_stop_thread.running = False
-            self._auto_stop_thread = AutoStopThread(self)
-            self._auto_stop_thread.start()
+            self.set_sleep_timer(60)
 
     def _do_play_queue(self):
         """
@@ -376,8 +382,7 @@ class AudioPlayerInterface(object):
                     # the progression (for example to update a progress bar)
                     # (not if there is a pending seek which will be
                     # processed just after)
-                    if (self.notify_progression_interval
-                            and self._seek is not None):
+                    if self.notify_progression_interval and self._seek is None:
                         t1 = monotonic()
                         if t1 - t0 >= self.notify_progression_interval:
                             t0 = t1
@@ -519,9 +524,7 @@ class AudioPlayerInterface(object):
                 self._do_stop()
                 self.status = "stopped"
 
-            if self._auto_stop_thread:
-                self._auto_stop_thread.running = False
-                self._auto_stop_thread = None
+            self.set_sleep_timer(None)
 
         if self._play_thread:
             # Status is stopped, wait to be sure the current play
@@ -807,6 +810,27 @@ class AudioPlayerInterface(object):
         else:
             self.play(queue=queue, shuffle=shuffle)
 
+    def set_sleep_timer(self, duration):
+        """
+        Start a new sleep timer with given duration in minutes.
+        The duration can either be a ``str`` or an ``int``.
+        A ``None`` duration means stop the current sleep timer if any.
+        """
+        with self._lock:
+            if self._sleep_timer_thread is not None:
+                self._sleep_timer_thread.running = None
+                self._sleep_timer_thread = None
+            if duration is not None:
+                duration = int(duration)
+            if duration:
+                self._sleep_timer_thread = t = SleepTimerThread(self)
+                t.start(duration)
+
+    @property
+    def sleep_timer_thread(self):
+        """The current :class:`SleepTimerThread` or ``None``."""
+        return self._sleep_timer_thread
+
 
 class PlayThread(Thread):
     """
@@ -897,30 +921,53 @@ class FadeOutThread(Thread):
         set_volume(orig_volume)
 
 
-class AutoStopThread(Thread):
+class SleepTimerThread(Thread):
     """Sleep timer (not yet customizable)"""
     def __init__(self, player):
         Thread.__init__(self)
         self.running = False
         self.player = player
         self.daemon = True
+        # Remaining duration in minutes
+        self.remaining = None
 
-    def start(self):
+    def start(self, duration):
         self.running = True
+        self.remaining = duration
         Thread.start(self)
 
     def run(self):
         log.info("%s started", self)
-        total_seconds = 3600
-        sleep_duration = 60
-        nb_iterations = total_seconds // sleep_duration
+        player = self.player
+
+        # Call the player sleep timer handler if any
+        if player.sleep_timer_update_handler is not None:
+            player.sleep_timer_update_handler(self.remaining)
+
+        nb_iterations = self.remaining
         for i in xrange(nb_iterations):
-            sleep(sleep_duration)
+            sleep(60)
+            self.remaining -= 1
             if not self.running:
                 log.info("leaving aborted %s", self)
                 return
-            if i > 0.75 * nb_iterations:
-                self.player.set_volume(max(0, self.player.volume - 1))
 
-        log.info("auto stop of player ! %s", self)
-        self.player.stop()
+            # Call the player sleep timer handler if any
+            if player.sleep_timer_update_handler is not None:
+                player.sleep_timer_update_handler(self.remaining)
+
+            if i > 0.75 * nb_iterations:
+                player.set_volume(max(0, self.player.volume - 1))
+
+        if player.sleep_timer_wait_track_end:
+            log.info("Sleep timer: waiting current track end")
+            current_track = player.current
+            while self.running and player.current == current_track:
+                sleep(1)
+
+        if not self.running:
+            log.info("leaving aborted %s", self)
+            return
+
+        log.info("Sleep timer reached ! %s", self)
+        player.stop(fade_out=True)
