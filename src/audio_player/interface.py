@@ -93,7 +93,7 @@ class PlayObjectInterface(object):
 
     def get_percentage_pos(self):
         """
-        Get the current position (as an int
+        Get the current position (as an int or float
         percentage between 0 and 100.
         """
         raise NotImplementedError
@@ -317,7 +317,7 @@ class AudioPlayerInterface(object):
             self._play_thread.daemon = True
             self._play_thread.start(self)
 
-            self.set_sleep_timer(60)
+            self.set_sleep_timer(60)  # TODO: Set the duration configurable
 
     def _do_play_queue(self):
         """
@@ -959,11 +959,19 @@ class SleepTimerThread(Thread):
             if i > 0.75 * nb_iterations:
                 player.set_volume(max(0, self.player.volume - 1))
 
-        if player.sleep_timer_wait_track_end:
+        play_obj = player.play_object
+        play_obj_duration = play_obj.duration
+        if player.sleep_timer_wait_track_end and play_obj_duration:
             log.info("Sleep timer: waiting current track end")
-            current_track = player.current
-            while self.running and player.current == current_track:
+            while self.running and player.play_object is play_obj:
                 sleep(1)
+                track_remaining_time = (play_obj_duration -
+                                        (play_obj.get_percentage_pos() / 100.0
+                                         * play_obj_duration))
+                if track_remaining_time < 10:
+                    log.info("Sleep timer: track end will be in %s seconds, "
+                             "stopping now", track_remaining_time)
+                    break
 
         if not self.running:
             log.info("leaving aborted %s", self)

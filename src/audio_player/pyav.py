@@ -64,7 +64,7 @@ class PyAVPlayObject(PlayObjectInterface):
         log.debug("stream.seek took %s", time() - t0)
 
     def get_percentage_pos(self):
-        if self.duration:
+        if self.duration and self.stream is not None:
             last_pts = self.last_frame.pts if self.last_frame is not None else 0
             self.pos = max(0, min(100, (last_pts * float(self.stream.time_base)
                                         / self.duration * 100)))
