@@ -287,10 +287,7 @@ class AudioPlayerInterface(object):
             elif os.path.isdir(path):
                 # Folder of music
                 # self.queue = glob.glob(path + "/*.mp3")
-                self.queue = [join(root, file_name)
-                              for root, _, file_names in os.walk(path)
-                              for file_name in file_names if
-                              file_name.endswith('.mp3')]
+                self.queue = self._search('*', root_dir=path)
                 if not self.queue:
                     log.error("empty queue !")
                     return
@@ -745,23 +742,40 @@ class AudioPlayerInterface(object):
         """
         Search musics given a string pattern (regex) and play results if any
         """
-        log.info("find music: %r" % pattern)
-        t0 = time()
-
         pattern = pattern.strip()
-        if not pattern or pattern == '*':
-            log.info("Play everything")
-            self.play(shuffle=shuffle)
-            return
+        log.info("search_and_play: %r" % pattern)
+        queue = self._search(pattern)
+        if not queue:
+            log.warning("No results for %r pattern! Don't play", pattern)
+        else:
+            self.play(queue=queue, shuffle=shuffle)
 
-        if is_stream(pattern):
+    def _search(self, pattern, root_dir=None):
+        """
+        Search musics given a string pattern (regex).
+
+        :returns: The list of matching files / URLs
+        """
+        t0 = time()
+        queue = ()
+
+        if root_dir is None:
+            root_dir = self.default_files_dir
+
+        if not pattern or pattern == '*':
+            log.info("Search all files in %r", root_dir)
+            queue = [join(root, file_name)
+                     for root, _, file_names in os.walk(root_dir)
+                     for file_name in file_names
+                     if file_name.endswith('.mp3')]
+
+        elif is_stream(pattern):
             # play a web stream
             queue = [pattern]
 
         elif pattern.startswith('#'):
             # Special query with keyword and optional options
             key, sep, options = pattern.partition(':')
-            queue = ()
 
             if key == "#recent":
                 # special '#recent' query allowing to play all files ordered by
@@ -803,12 +817,8 @@ class AudioPlayerInterface(object):
                     if match(regexp, full_path):
                         add(full_path)
 
-        log.info("Found %s results in %ss" % (len(queue) if queue else 0,
-                                              time() - t0))
-        if not queue:
-            log.warning("No results for %r pattern! Don't play", pattern)
-        else:
-            self.play(queue=queue, shuffle=shuffle)
+        log.info("Found %s results in %ss" % (len(queue), time() - t0))
+        return queue
 
     def set_sleep_timer(self, duration):
         """
