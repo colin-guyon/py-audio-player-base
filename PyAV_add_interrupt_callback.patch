@@ -1,0 +1,109 @@
+diff --git a/av/container/core.pyx b/av/container/core.pyx
+index b1f9f57..5f274e0 100644
+--- a/av/container/core.pyx
++++ b/av/container/core.pyx
+@@ -1,6 +1,10 @@
+ from libc.stdint cimport uint8_t, int64_t
+ from libc.stdlib cimport malloc, free
++from libc.stdio cimport printf
+ from libc.string cimport memcpy
++#from posix.time cimport clock_gettime, timespec, CLOCK_REALTIME
++from libc.time cimport time, time_t
++
+ 
+ import sys
+ 
+@@ -89,12 +93,39 @@ cdef int64_t pyio_seek_gil(void *opaque, int64_t offset, int whence):
+ 
+ cdef object _cinit_sentinel = object()
+ 
+-
++cdef long start_time = 0
++
++cdef int interrupt_callback(void* ctx):
++    global start_time
++    printf("interrupt_callback called\n")
++    cdef lib.AVFormatContext* formatContext 
++    formatContext = <lib.AVFormatContext*> ctx
++    # timeout after 10 seconds of no activity
++    #cdef timespec now
++    #cdef double t1
++    #cdef double t2
++    #cdef double tdiff
++    #t1 = *<double*>(formatContext.opaque)
++    #if clock_gettime(CLOCK_REALTIME, &now) == -1:
++    #    printf("ERROR: clock_gettime failed\n")
++    #else:
++    #t1 = start_time
++    #t2 = now.tv_sec
++    #tdiff = (t2 - t1) / 1e9
++    cdef long now
++    cdef long tdiff
++    now = <long> time(NULL)
++    tdiff = now - start_time
++    start_time = now
++    printf("time diff %ld\n", tdiff)
++    if tdiff >= 10:
++        return 1
++    return 0
+ 
+ cdef class ContainerProxy(object):
+ 
+     def __init__(self, sentinel, Container container):
+-
++        global start_time
+         cdef int res
+ 
+         if sentinel is not _cinit_sentinel:
+@@ -109,6 +140,9 @@ cdef class ContainerProxy(object):
+ 
+ 
+         cdef lib.AVOutputFormat *ofmt
++
++        #cdef timespec start
++
+         if self.writeable:
+ 
+             ofmt = container.format.optr if container.format else lib.av_guess_format(NULL, name, NULL)
+@@ -128,6 +162,13 @@ cdef class ContainerProxy(object):
+         else:
+             # We need the context before we open the input AND setup Python IO.
+             self.ptr = lib.avformat_alloc_context()
++            self.ptr.interrupt_callback.callback = interrupt_callback
++            self.ptr.interrupt_callback.opaque = <void*> self.ptr
++            #if clock_gettime(CLOCK_REALTIME, &start) == -1:
++            #    printf("ERROR: clock_gettime failed\n")
++            #self.ptr.opaque = <void*> &start.tv_sec
++            #start_time = start.tv_sec
++            start_time = <long> time(NULL)
+ 
+         self.ptr.flags |= lib.AVFMT_FLAG_GENPTS
+         self.ptr.max_analyze_duration = 10000000
+diff --git a/include/libavformat/avformat.pxd b/include/libavformat/avformat.pxd
+index fd355c0..02f3cc6 100644
+--- a/include/libavformat/avformat.pxd
++++ b/include/libavformat/avformat.pxd
+@@ -139,7 +139,12 @@ cdef extern from "libavformat/avformat.pyav.h" nogil:
+     cdef AVInputFormat* av_find_input_format(const char *name)
+     cdef AVInputFormat* av_iformat_next(AVInputFormat*)
+     cdef AVOutputFormat* av_oformat_next(AVOutputFormat*)
+-    
++
++    # https://ffmpeg.org/doxygen/trunk/structAVIOInterruptCB.html
++    cdef struct AVIOInterruptCB:
++        int(*   callback )(void *)
++        void *  opaque
++
+     # http://ffmpeg.org/doxygen/trunk/structAVFormatContext.html
+     cdef struct AVFormatContext:
+         
+@@ -162,6 +167,9 @@ cdef extern from "libavformat/avformat.pyav.h" nogil:
+         int flags
+         int64_t max_analyze_duration
+ 
++        AVIOInterruptCB interrupt_callback
++        void *opaque
++
+     
+     cdef AVFormatContext* avformat_alloc_context()
+ 
