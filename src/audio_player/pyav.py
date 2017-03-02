@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Play object class using PyAV (thus ffmpeg or libav).
 """
@@ -21,8 +22,10 @@ class PyAVPlayObject(PlayObjectInterface):
 
     def open(self, path, mono=False, sample_rate=44100):
         """Open the audio resource."""
-        container = av.open(path, options={'usetoc': '1'})
-        # usetoc is set to enable fast seek (see also
+        container = av.open(path, options={'usetoc': '1',
+                                           # Timeouts of I/O operations in µs and ms
+                                           'timeout': '5000000', 'listen_timeout': '5000'})
+        # 'usetoc' is set to enable fast seek (see also
         # ffmpeg commit c43bd08 for a 'fastseek' option)
         log.debug(container)
         stream = self.stream = \

@@ -1,7 +1,7 @@
 
 import sys
 import os
-from os.path import join
+from os.path import join, splitext
 from time import time, sleep
 import shutil
 import re
@@ -138,6 +138,11 @@ class AudioPlayerInterface(object):
     #: :class:`PlayObjectInterface` interface.
     PlayObjectClass = None
 
+    #: All handled extensions (here it's just an example, but it is
+    #: certainly dependant on the :attr:`.PlayObjectClass` you set
+    #: on the player)
+    handled_extensions = ('.mp3', '.wav')
+
     #: Whether to wait for the end of the current played track before stopping
     #: playback from a sleep timer.
     sleep_timer_wait_track_end = False
@@ -166,8 +171,10 @@ class AudioPlayerInterface(object):
         self.queue = []
         # (`int`) current index within the queue
         self._play_index = 0
+        #: Instance of a :class:`.PlayObjectClass` for the current played track. 
+        self.play_object = None
         #: (`str`) status can be "stopped", "playing", "paused"
-        # (readonly)
+        #: (readonly)
         self.status = "stopped"
 
         # (`str`) the last played music, after a stop
@@ -286,7 +293,6 @@ class AudioPlayerInterface(object):
                     random.shuffle(self.queue)
             elif os.path.isdir(path):
                 # Folder of music
-                # self.queue = glob.glob(path + "/*.mp3")
                 self.queue = self._search('*', root_dir=path)
                 if not self.queue:
                     log.error("empty queue !")
@@ -328,6 +334,8 @@ class AudioPlayerInterface(object):
 
         self._prev_path = None
 
+        open_error_count = 0
+
         while self.status != "stopped":
             with self._lock:
                 if not self.queue:
@@ -342,7 +350,25 @@ class AudioPlayerInterface(object):
                     path = self.queue[0]
 
             log.info("Will now play %r", path)
-            self.play_object = play_object = self._do_open_path_for_play(path)
+            try:
+                self.play_object = play_object = self._do_open_path_for_play(path)
+            except:
+                log.exception("play object creation failed !")
+                open_error_count += 1
+                if open_error_count > 10:
+                    log.error("too much consecutive open failures, stopping player")
+                    # Stop the player in a separate thread so that it can
+                    # join the play thread
+                    Thread(target=self.stop,
+                           kwargs=dict(save_current=False)).start()
+                    break
+                self._play_index += 1  # try with the next track
+                sleep(2)  # to avoid an endless loop taking all cpu
+                continue
+
+            else:
+                # Open worked, let's reset the counter
+                open_error_count = 0
 
             if play_object.duration:
                 total_minutes = play_object.duration // 60
@@ -509,8 +535,8 @@ class AudioPlayerInterface(object):
             if self.status != "stopped":
                 if fade_out:
                     if self.volume == 0:
-                            log.warning("Volume is already equal to 0, "
-                                        "don't need to fade out.")
+                        log.warning("Volume is already equal to 0, "
+                                    "don't need to fade out.")
                     else:
                         log.info("Start fade out and return: stop will be done "
                                  "by the fade out thread")
@@ -748,6 +774,9 @@ class AudioPlayerInterface(object):
         if not queue:
             log.warning("No results for %r pattern! Don't play", pattern)
         else:
+            if shuffle and pattern == '#recent':
+                # play all recent files in shuffle could be strange ?
+                shuffle = False
             self.play(queue=queue, shuffle=shuffle)
 
     def _search(self, pattern, root_dir=None):
@@ -762,12 +791,14 @@ class AudioPlayerInterface(object):
         if root_dir is None:
             root_dir = self.default_files_dir
 
+        handled_extensions = self.handled_extensions
+
         if not pattern or pattern == '*':
             log.info("Search all files in %r", root_dir)
             queue = [join(root, file_name)
                      for root, _, file_names in os.walk(root_dir)
                      for file_name in file_names
-                     if file_name.endswith('.mp3')]
+                     if splitext(file_name)[1] in handled_extensions]
 
         elif is_stream(pattern):
             # play a web stream
@@ -780,15 +811,11 @@ class AudioPlayerInterface(object):
             if key == "#recent":
                 # special '#recent' query allowing to play all files ordered by
                 # modification date (descending)
-
-                # play all recent files in shuffle could be strange ?
-                shuffle = False
-
                 queue = [join(root, file_name)
                          for root, _, file_names
                          in os.walk(self.default_files_dir)
                          for file_name in file_names
-                         if file_name.endswith('.mp3')]
+                         if splitext(file_name)[1] in handled_extensions]
                 queue.sort(key=os.path.getmtime, reverse=True)
             else:
                 log.error("Unknown special '#' query %r", pattern)
@@ -810,8 +837,7 @@ class AudioPlayerInterface(object):
 
             for root, _, file_names in os.walk(self.default_files_dir):
                 for file_name in file_names:
-                    if not file_name.endswith('.mp3'):
-                        # TODO: handle other codecs
+                    if splitext(file_name)[1] not in handled_extensions:
                         continue
                     full_path = join(root, file_name)
                     if match(regexp, full_path):

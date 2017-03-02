@@ -1,3 +1,9 @@
+"""
+Simple player example.
+
+PYTHONPATH="src:../PyAV" python alsa_pyav_audio_player_example.py http://live.radiogrenouille.com/live
+"""
+
 import sys
 from time import sleep
 from audio_player.alsa import AlsaAudioPlayer
@@ -12,6 +18,8 @@ class MyAudioPlayer(AlsaAudioPlayer):
         """Regularly called, for example to update a progress bar"""
         current_percent_pos = self.play_object.get_percentage_pos()
         total_duration_seconds = self.play_object.duration
+        if not total_duration_seconds:
+            return
         current_pos_seconds = int(current_percent_pos / 100. * total_duration_seconds)
         print(" {:.1f}% (-{:d}s)".
               format(current_percent_pos,
