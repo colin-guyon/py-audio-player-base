@@ -78,12 +78,22 @@ class PlayObjectInterface(object):
     duration = 0
     #: (``int``) Sample rate, such as 44100
     sample_rate = 0
+    #: (``bool``) Whether the object is currently paused or not
+    #: (see :meth:`.set_paused`)
+    paused = False
 
     def open(self, path, mono=False, sample_rate=44100):
         """
         Open the audio resource (can be a local file or a web URL)
         """
         raise NotImplementedError
+
+    def set_paused(self, paused):
+        """
+        Set the :data:`.paused` state.
+        """
+        log.info("%s set paused to %s", self, paused)
+        self.paused = paused
 
     def set_percentage_pos(self, pos):
         """
@@ -171,7 +181,7 @@ class AudioPlayerInterface(object):
         self.queue = []
         # (`int`) current index within the queue
         self._play_index = 0
-        #: Instance of a :class:`.PlayObjectClass` for the current played track. 
+        #: Instance of a :class:`.PlayObjectClass` for the current played track.
         self.play_object = None
         #: (`str`) status can be "stopped", "playing", "paused"
         #: (readonly)
@@ -264,7 +274,7 @@ class AudioPlayerInterface(object):
         return os.path.splitext(path)[0]
 
     def play(self, path=None, queue=None, loop=False,
-             shuffle=False, fade_in=False):
+             shuffle=False, fade_in=False, sleep_timer=60):
         """"
         Play a new music file, or folder, or queue from a search ....
         If currently playing, :meth:`stop` is preliminarily called.
@@ -272,6 +282,8 @@ class AudioPlayerInterface(object):
         If ``path`` is None, the :attr:`.default_files_dir` is used.
 
         Calls :meth:`._do_play_queue` in a new thread.
+
+        :param sleep_timer: (``int``) Sleep timer to set in minutes.
         """
         if self.status != "stopped":
             self.stop()
@@ -290,6 +302,7 @@ class AudioPlayerInterface(object):
                     log.error("empty queue !")
                     return
                 elif shuffle:
+                    log.info("Shuffling queue")
                     random.shuffle(self.queue)
             elif os.path.isdir(path):
                 # Folder of music
@@ -298,6 +311,7 @@ class AudioPlayerInterface(object):
                     log.error("empty queue !")
                     return
                 elif shuffle:
+                    log.info("Shuffling queue")
                     random.shuffle(self.queue)
 
                 if self._stopped_music:
@@ -320,7 +334,7 @@ class AudioPlayerInterface(object):
             self._play_thread.daemon = True
             self._play_thread.start(self)
 
-            self.set_sleep_timer(60)  # TODO: Set the duration configurable
+            self.set_sleep_timer(sleep_timer)
 
     def _do_play_queue(self):
         """
@@ -394,8 +408,13 @@ class AudioPlayerInterface(object):
                 data = play_object.readframes(self.audio_chunk_size)
 
                 while data:
-                    while self.status == "paused":
-                        sleep(0.05)
+                    if self.status == "paused":
+                        play_object.set_paused(True)
+                        while self.status == "paused":
+                            sleep(0.05)
+                        if self.status == "playing":
+                            play_object.set_paused(False)
+
                     if self._go_prev or self._go_next:
                         break
                     if self.status == "stopped":
@@ -714,11 +733,11 @@ class AudioPlayerInterface(object):
 
             try:
                 if backup:
-                    if (not self.removed_files_backup_dir or
-                            not os.path.isdir(self.removed_files_backup_dir)):
-                        raise ValueError("Cannot do a backup: invalid "
-                                         "removed_files_backup_dir. "
-                                         "Do not delete the file.")
+                    if not self.removed_files_backup_dir:
+                        raise ValueError(
+                            "Cannot do a backup: invalid "
+                            "removed_files_backup_dir. "
+                            "Do not delete the file.")
 
                     if current.startswith(self.default_files_dir):
                         rel_path = os.path.relpath(current,
@@ -774,10 +793,16 @@ class AudioPlayerInterface(object):
         if not queue:
             log.warning("No results for %r pattern! Don't play", pattern)
         else:
-            if shuffle and pattern == '#recent':
+            if shuffle and pattern.startswith('#recent'):
                 # play all recent files in shuffle could be strange ?
                 shuffle = False
-            self.play(queue=queue, shuffle=shuffle)
+                log.info("search recent files: shuffle forced to False")
+            play_kwargs = {'queue': queue, 'shuffle': shuffle}
+            # Keep the current remaining sleep timer, because we do a new search
+            # without manually doing a stop.
+            if self._sleep_timer_thread and self._sleep_timer_thread.remaining:
+                play_kwargs['sleep_timer'] = self._sleep_timer_thread.remaining
+            self.play(**play_kwargs)
 
     def _search(self, pattern, root_dir=None):
         """
@@ -817,6 +842,7 @@ class AudioPlayerInterface(object):
                          for file_name in file_names
                          if splitext(file_name)[1] in handled_extensions]
                 queue.sort(key=os.path.getmtime, reverse=True)
+                log.debug("queue sorted by modification date")
             else:
                 log.error("Unknown special '#' query %r", pattern)
 

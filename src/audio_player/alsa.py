@@ -30,6 +30,7 @@ class AlsaAudioPlayer(AudioPlayerInterface):
         # Alsa mixer for volume control
         self.mixer = aa.Mixer(self.mixer_name)
         log.debug("mixer is %r", self.mixer.mixer())
+        self.output = None
         self._output_params = (None, None, None)
         super(AlsaAudioPlayer, self).__init__(*args, **kwargs)
 
@@ -68,9 +69,12 @@ class AlsaAudioPlayer(AudioPlayerInterface):
         """
         Close the alsa output audio interface.
         """
-        log.debug("closing alsa audio output")
-        self.output.close()
-        self.output = None
+        if self.output is not None:
+            log.debug("closing alsa audio output")
+            self.output.close()
+            self.output = None
+        else:
+            log.warning("No output to close")
 
     def _do_write_data_chunk(self, data, context):
         """

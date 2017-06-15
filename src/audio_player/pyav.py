@@ -8,20 +8,28 @@ from time import time
 # PyAV : direct usage of ffmpeg/libav without subprocess
 import av
 
-from .interface import log, PlayObjectInterface
+from .interface import log, PlayObjectInterface, is_stream
 
 __all__ = ('PyAVPlayObject',)
 
 
 class PyAVPlayObject(PlayObjectInterface):
-    data = b''
-    last_frame = None
-    decode_iter = None
-    pos = None
-    stream = None
+
+    def __init__(self):
+        super(PyAVPlayObject, self).__init__()
+        self.path = None
+        self.open_kargs = None
+        self.data = b''
+        self.last_frame = None
+        self.decode_iter = None
+        self.pos = None
+        self.stream = None
 
     def open(self, path, mono=False, sample_rate=44100):
         """Open the audio resource."""
+        self.path = path
+        self.open_kargs = {'mono': mono, 'sample_rate': sample_rate}
+
         container = av.open(path, options={'usetoc': '1',
                                            # Timeouts of I/O operations in µs and ms
                                            'timeout': '5000000', 'listen_timeout': '5000'})
@@ -57,6 +65,18 @@ class PyAVPlayObject(PlayObjectInterface):
 
         self.num_channels = 1 if mono else stream.channels
         self.sample_rate = resampler.rate
+
+    def set_paused(self, paused):
+        super(PyAVPlayObject, self).set_paused(paused)
+        # Special treatments for web streams: reopen the
+        # stream when the playback is unpaused
+        if is_stream(self.path):
+            if paused:
+                log.info("Close paused stream")
+                self.close()
+            else:
+                log.info("Reopen unpaused stream")
+                self.open(self.path, **self.open_kargs)
 
     def set_percentage_pos(self, pos):
         self.pos = pos
@@ -96,7 +116,8 @@ class PyAVPlayObject(PlayObjectInterface):
 
     def close(self):
         log.info("Close %s", self)
-        self.data = None
+        self.data = b''
         self.decode_iter = None
         self.last_frame = None
         self.stream = None
+

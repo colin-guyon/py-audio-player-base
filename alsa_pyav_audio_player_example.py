@@ -28,13 +28,15 @@ class MyAudioPlayer(AlsaAudioPlayer):
 PLAYER = MyAudioPlayer(default_files_dir=sys.argv[1],
                        removed_files_backup_dir='/home/colin/Desktop/music_trash/',
                        notify_progression_interval=1.0)
-PLAYER.play(shuffle=True)
+PLAYER.play(queue=[ sys.argv[1] ], shuffle=True)
 
 try:
     while PLAYER.status != 'stopped':
         sleep(1)
         r = input()
-        if r == 's':
+        if r == ' ':
+            PLAYER.play_pause()
+        elif r == 's':
             PLAYER.seek(95)
         elif r == 'n':
             PLAYER.play_next()
