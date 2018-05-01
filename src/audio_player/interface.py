@@ -7,6 +7,7 @@ import shutil
 import re
 from threading import Thread, RLock
 import random
+import traceback
 
 __all__ = ('PlayObjectInterface', 'AudioPlayerInterface',
            'FadeInThread', 'SleepTimerThread')
@@ -26,7 +27,6 @@ class PrintLogger(object):
             print(self.name + ' ' + str(args[0]))
 
     def _log_exception(self, *args):
-        import traceback
         _, ex, tb = sys.exc_info()
         traceback.print_tb(tb)
         print(repr(ex))
@@ -138,8 +138,13 @@ class AudioPlayerInterface(object):
         - :meth:`._do_seek`
         - :meth:`._do_set_volume`
 
-    .. note:: When calling :meth:`play` the playback is done in a new thread
-        (:class:`PlayThread`).
+    When calling :meth:`play` the playback is done in a new thread
+    (:class:`PlayThread`).
+
+    You can implement :meth:`._on_playback_stopped` if you want to do
+    things after the end of a playback (called after the play thread
+    has been joined, either after a manual stop or when the playlist
+    is finished).
     """
     #: (``int``) Size of audio chunks (number of frames), such as 4096.
     audio_chunk_size = 4096
@@ -476,6 +481,7 @@ class AudioPlayerInterface(object):
         log.debug("end of queue")
         self._do_close_output()
         log.debug("Status after end of queue: %r", self.status)
+        self._on_playback_stopped()
 
     def _do_open_output(self):
         """
@@ -540,7 +546,7 @@ class AudioPlayerInterface(object):
         pass
 
     def stop(self, save_current=True, fade_out=False):
-        """ stop the music if any """
+        """ Stop the playback. """
         log.debug('Stop player')
         with self._lock:
             fade_thread = self._fade_thread
@@ -583,6 +589,12 @@ class AudioPlayerInterface(object):
         self._seek = None
         self._go_prev = False
         self._go_next = False
+
+    def _on_playback_stopped(self):
+        """ Called when the playback is terminated, after a manual
+        stop or when the playlist is terminated.
+        This method is called after :methh`._do_close_output`. """
+        pass
 
     def play_pause(self, shuffle=False):
         """ play or pause the music """

@@ -1,12 +1,12 @@
 # py-audio-player
 
-Python package containing containing various audio player classes.
+Python package containing various audio player classes.
 
 
   - ``AudioPlayerInterface`` : Interface class for an audio player.
 
       Main methods :
-  
+
           - ``play`` : Play a single file or a whole folder, or a list of files.
           - ``search_and_play`` : Search among a default search dir and play the matching results.
           - ``play_pause`` : Pause if currently playing, else start a new play.
@@ -37,7 +37,12 @@ Python package containing containing various audio player classes.
           - ``_do_open_output`` : Open the audio output that will be used to hear the sound
                                   (called before the play queue is started).
 
-          - ``_do_close_output`` : Close the audio output (called when the playback is finished).
+          - ``_do_close_output`` : Close the audio output after a playback
+                                   (called when the playback is finished, after a manual
+                                   stop or the end of a playlist).
+                                   The ``_on_playback_stopped`` method is called after
+                                   ``_do_close_output`` and can be implemented for things that
+                                   are not related to the audio output.
 
           - ``_do_write_data_chunk`` : Write an audio data chunk to the audio output.
                                        You can also process the data chunk in this method for
@@ -123,10 +128,10 @@ Other simple usage example
     root_dir = '/my/usb/key/'
     audio_dir = os.path.join(root_dir, 'music')
     audio_trash_dir = os.path.join(root_dir, 'music_trash')
-    
+
     player = MyAudioPlayer(default_files_dir=audio_dir,
                            removed_files_backup_dir=audio_trash_dir)
-    
+
     player.play_pause()
     # ...
     player.play_next()
@@ -154,8 +159,12 @@ TODO
 Links
 -----
 
+Thanks to the following projects that are used under the hood:
+
   - pyalsaaudio: http://larsimmisch.github.io/pyalsaaudio/
   - PyAV : http://mikeboers.github.io/PyAV/
   - FFmpeg : https://ffmpeg.org/
   - libav : https://libav.org/
   - decoder.py : https://pypi.python.org/pypi/decoder.py/
+
+... and all those that I forget to mention !
