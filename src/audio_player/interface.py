@@ -688,27 +688,30 @@ class AudioPlayerInterface(object):
         """ Current volume. """
         return self._volume
 
-    def start_volume_fade_in(self):
-        """ Start a thread to fade-in the volume. The volume is
-        preliminary set to 0.  """
-        self.set_volume(0)
-        # Normally if a FadeThread was running it has been stopped in the
-        # last call of stop() or play(). So directly start a new one:
-        self._fade_thread = t = \
-            FadeInThread(lambda: self.volume, self.set_volume)
-        t.start()
+    def start_volume_fade_in(self, start_volume=None):
+        """ Start a thread to fade-in the volume.
+        The volume is preliminary set to the specified ``start_volume``
+        if not ``None``, else the current volume is kept.
+        """
+        with self._lock:
+            self.stop_volume_fade()
+            if start_volume is not None:
+                self.set_volume(start_volume)
+            self._fade_thread = t = \
+                FadeInThread(lambda: self.volume, self.set_volume)
+            t.start()
 
     def start_volume_fade_out(self):
         """ Start a thread to fade-out the volume. :meth:`.stop` will
         be called that the end of the fade.  """
-        # Normally if a FadeThread was running it has been stopped in the
-        # last call of stop() or play(). So directly start a new one:
-        self._fade_thread = t = \
-            FadeOutThread(lambda: self.volume, self.set_volume, self.stop)
-        t.start()
+        with self._lock:
+            self.stop_volume_fade()
+            self._fade_thread = t = \
+                FadeOutThread(lambda: self.volume, self.set_volume, self.stop)
+            t.start()
 
     def stop_volume_fade(self):
-        """ Stop the thread that fades the volume (if running) """
+        """ Stop the thread that fades the volume (if running). """
         with self._lock:
             if self._fade_thread:
                 log.debug("Set running=False on %s", self._fade_thread)
@@ -933,7 +936,12 @@ class FadeInThread(Thread):
     def run(self):
         max_vol = self.max_volume
         get_volume, set_volume = self.get_volume, self.set_volume
-        for vol in xrange(5, max_vol, 4):
+        current_vol = get_volume()
+        if current_vol >= max_vol:
+            log.info("FadeInThread: volume is already higher than target volume")
+            return
+        increment = 4
+        for vol in xrange(current_vol + increment, max_vol, increment):
             if get_volume() < vol:
                 set_volume(vol)
             if not self.running:

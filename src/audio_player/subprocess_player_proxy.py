@@ -53,11 +53,7 @@ class SubprocessAudioPlayer(AudioPlayerInterface):
 
         fade_in = self._last_play_args[1]['fade_in']
         if fade_in:
-            self.set_volume(0)
-            # Normally if a FadeThread was running it has been stopped in the
-            # last call of stop() or play(). So directly start a new one:
-            self._fade_thread = t = FadeInThread(lambda: self.volume, self.set_volume)
-            t.start()
+            self.start_volume_fade_in()
 
         while self.status != "stopped":
             with self._lock:
