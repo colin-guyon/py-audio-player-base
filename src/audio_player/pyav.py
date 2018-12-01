@@ -21,8 +21,10 @@ class PyAVPlayObject(PlayObjectInterface):
         self.open_kargs = None
         self.data = b''
         self.last_frame = None
+        self.last_frame_pts = 0
         self.decode_iter = None
         self.pos = None
+        self.container = None
         self.stream = None
 
     def open(self, path, mono=False, sample_rate=44100):
@@ -30,15 +32,17 @@ class PyAVPlayObject(PlayObjectInterface):
         self.path = path
         self.open_kargs = {'mono': mono, 'sample_rate': sample_rate}
 
-        container = av.open(path, options={'usetoc': '1',
-                                           # Timeouts of I/O operations in µs and ms
-                                           'timeout': '5000000', 'listen_timeout': '5000'})
+        self.container = container = av.open(
+            path,
+            options={'usetoc': '1',
+                     # Timeouts of I/O operations in µs and ms
+                     'timeout': '5000000', 'listen_timeout': '5000'})
         # 'usetoc' is set to enable fast seek (see also
         # ffmpeg commit c43bd08 for a 'fastseek' option)
-        log.debug(container)
+        log.debug('container: %s', container)
         stream = self.stream = \
             next(s for s in container.streams if s.type == 'audio')
-        log.debug(stream)
+        log.debug('stream: %s', stream)
 
         resampler = av.AudioResampler(
             format=av.AudioFormat('s16').packed,
@@ -49,6 +53,10 @@ class PyAVPlayObject(PlayObjectInterface):
             """Genrator reading and decoding the audio stream."""
             for packet in container.demux(stream):
                 for frame in packet.decode():
+                    self.last_frame_pts = frame.pts
+                    # frame pts must be set to None
+                    // (see https://github.com/mikeboers/PyAV/issues/281)
+                    frame.pts = None
                     frame = resampler.resample(frame)
                     yield frame
 
@@ -83,12 +91,12 @@ class PyAVPlayObject(PlayObjectInterface):
         stream = self.stream
         time_pos = int(pos / 100.0 * stream.duration) + stream.start_time
         t0 = time()
-        stream.seek(time_pos, mode='time')
+        self.container.seek(time_pos, whence='time', stream=stream)
         log.debug("stream.seek took %s", time() - t0)
 
     def get_percentage_pos(self):
         if self.duration and self.stream is not None:
-            last_pts = self.last_frame.pts if self.last_frame is not None else 0
+            last_pts = self.last_frame_pts
             self.pos = max(0, min(100, (last_pts * float(self.stream.time_base)
                                         / self.duration * 100)))
         return self.pos
