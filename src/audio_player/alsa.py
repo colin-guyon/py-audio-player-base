@@ -11,9 +11,10 @@ from .interface import log, AudioPlayerInterface
 
 __all__ = ('AlsaAudioPlayer',)
 
-
-log.debug("Available ALSA mixers : %s", aa.mixers())
-
+try:
+    log.debug("Available ALSA mixers : %s", aa.mixers())
+except:
+    log.exception("failed to get alsaaudio mixers")
 
 class AlsaAudioPlayer(AudioPlayerInterface):
     """

@@ -55,7 +55,7 @@ class PyAVPlayObject(PlayObjectInterface):
                 for frame in packet.decode():
                     self.last_frame_pts = frame.pts
                     # frame pts must be set to None
-                    // (see https://github.com/mikeboers/PyAV/issues/281)
+                    # (see https://github.com/mikeboers/PyAV/issues/281)
                     frame.pts = None
                     frame = resampler.resample(frame)
                     yield frame
