@@ -374,7 +374,7 @@ class AudioPlayerInterface(object):
             except:
                 log.exception("play object creation failed !")
                 open_error_count += 1
-                if open_error_count > 10:
+                if open_error_count > 20:
                     log.error("too much consecutive open failures, stopping player")
                     # Stop the player in a separate thread so that it can
                     # join the play thread
