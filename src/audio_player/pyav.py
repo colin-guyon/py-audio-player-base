@@ -27,7 +27,7 @@ class PyAVPlayObject(PlayObjectInterface):
         self.container = None
         self.stream = None
 
-    def open(self, path, mono=False, sample_rate=44100):
+    def open(self, path, mono=False, sample_rate=None):
         """Open the audio resource."""
         self.path = path
         self.open_kargs = {'mono': mono, 'sample_rate': sample_rate}
@@ -47,7 +47,7 @@ class PyAVPlayObject(PlayObjectInterface):
         resampler = av.AudioResampler(
             format=av.AudioFormat('s16').packed,
             layout='mono' if mono else stream.layout,
-            rate=sample_rate)
+            rate=sample_rate or stream.rate or 44100)
 
         def decode_iter():
             """Genrator reading and decoding the audio stream."""
@@ -128,4 +128,5 @@ class PyAVPlayObject(PlayObjectInterface):
         self.decode_iter = None
         self.last_frame = None
         self.stream = None
+        self.container = None
 
