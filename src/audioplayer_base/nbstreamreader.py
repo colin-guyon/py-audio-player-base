@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
 from threading import Thread
-from Queue import Queue, Empty
+try:
+    from queue import Queue, Empty
+except ImportError:
+    # Python < 3
+    from Queue import Queue, Empty
+
+__all__ = ('NonBlockingStreamReader', 'UnexpectedEndOfStream')
 
 
 class NonBlockingStreamReader:

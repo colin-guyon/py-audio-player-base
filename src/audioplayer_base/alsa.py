@@ -22,13 +22,21 @@ class AlsaAudioPlayer(AudioPlayerInterface):
 
     To be usable, the :attr:`.PlayObjectClass` must be set.
     """
-    #: Name of the ALSA mixer to use for volume control.
-    #: (You can list the available mixers on you system using
-    #: pyalsaaudio mixers() method)
-    mixer_name = 'Master'
+    #: Name (`str`) of the ALSA mixer to use for volume control.
+    #: You can list the available mixers on you system using
+    #: pyalsaaudio mixers() method.
+    #: If not specified, the first available mixer name is taken.
+    mixer_name = None
 
     def __init__(self, *args, **kwargs):
         # Alsa mixer for volume control
+        if not self.mixer_name:
+            mixers = aa.mixers()
+            if not mixers:
+                raise Exception("No available alsaaudio mixers")
+            self.mixer_name = mixers[0]
+            log.debug("Using the first available alsaaudio mixer %r",
+                      self.mixer_name)
         self.mixer = aa.Mixer(self.mixer_name)
         log.debug("mixer is %r", self.mixer.mixer())
         self.output = None

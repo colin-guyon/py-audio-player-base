@@ -1,17 +1,17 @@
 """
 Simple player example.
 
-PYTHONPATH="src:../PyAV" python alsa_pyav_audio_player_example.py http://live.radiogrenouille.com/live
+For eg.:
+> PYTHONPATH=src python alsa_pyav_audio_player_example.py http://live.radiogrenouille.com/live
 """
 
 import sys
 from time import sleep
-from audio_player.alsa import AlsaAudioPlayer
-from audio_player.pyav import PyAVPlayObject
+from audio_player_base.alsa import AlsaAudioPlayer
+from audio_player_base.pyav import PyAVPlayObject
 
 
 class MyAudioPlayer(AlsaAudioPlayer):
-
     PlayObjectClass = PyAVPlayObject
 
     def _notify_progression(self, context):
@@ -25,30 +25,31 @@ class MyAudioPlayer(AlsaAudioPlayer):
               format(current_percent_pos,
                      total_duration_seconds - current_pos_seconds))
 
-PLAYER = MyAudioPlayer(default_files_dir=sys.argv[1],
-                       removed_files_backup_dir='/home/colin/Desktop/music_trash/',
-                       notify_progression_interval=1.0)
-PLAYER.play(queue=[ sys.argv[1] ], shuffle=True)
+if __name__ == '__main__':
+    player = MyAudioPlayer(default_files_dir='.',
+                           removed_files_backup_dir='./music_trash',
+                           notify_progression_interval=1.0)
+    player.play(queue=sys.argv[1:], shuffle=True)
 
-try:
-    while PLAYER.status != 'stopped':
-        sleep(1)
-        r = input()
-        if r == ' ':
-            PLAYER.play_pause()
-        elif r == 's':
-            PLAYER.seek(95)
-        elif r == 'n':
-            PLAYER.play_next()
-        elif r == 'p':
-            PLAYER.play_prev()
-        elif r == 'r':
-            PLAYER.seek(0)
-        elif r == 'd':
-            PLAYER.remove_current(backup=True)
-        elif r == 'q':
-            PLAYER.stop()
-        elif r.startswith('#'):
-            PLAYER.search_and_play(r[1:])
-except KeyboardInterrupt:
-    PLAYER.stop()
+    cmd2action = {
+        ' ': player.play_pause,
+        's': lambda: player.seek(95),
+        'n': player.play_next,
+        'p': player.play_prev,
+        'r': lambda: player.seek(0),
+        'd': lambda: player.remove_current(backup=True),
+        'q': player.stop,
+    }
+
+    try:
+        while player.status != 'stopped':
+            sleep(1)
+            r = input()
+            action = cmd2action.get(r)
+            if action is not None:
+                action()
+            else:
+                # Maybe a search query like '#recent' ?
+                player.search_and_play(r)
+    except KeyboardInterrupt:
+        player.stop()

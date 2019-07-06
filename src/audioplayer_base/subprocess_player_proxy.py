@@ -7,6 +7,7 @@ import os
 import re
 from time import sleep
 import subprocess
+import signal
 
 from .interface import log, AudioPlayerInterface, FadeInThread
 
@@ -17,22 +18,21 @@ from .nbstreamreader import NonBlockingStreamReader
 __all__ = ('SubprocessAudioPlayer',)
 
 
-
 class SubprocessAudioPlayer(AudioPlayerInterface):
-    """ Player using another program in a subprocess to decode and play
-    audio, such as mplayer. """
+    """ Player using another program (such as mplayer) in a subprocess to
+    decode and play audio. """
 
     # player program to use
     player = "mplayer"
     player_default_options = ['-slave', '-quiet']
 
-    _percent_pos_regex = re.compile("ANS_PERCENT_POSITION=(\d+)")
+    _percent_pos_regex = re.compile(r"ANS_PERCENT_POSITION=(\d+)")
 
-    _quit_cmd = 'quit\n'
-    _pause_cmd = 'pause\n'
+    _quit_cmd = b'quit\n'
+    _pause_cmd = b'pause\n'
 
-    def __init__(self):
-        super(SubprocessAudioPlayer, self).__init__()
+    def __init__(self, *args, **kwargs):
+        super(SubprocessAudioPlayer, self).__init__(*args, **kwargs)
         # current subprocess.Popen object for the music being played
         self.current_process = None
 
@@ -48,8 +48,6 @@ class SubprocessAudioPlayer(AudioPlayerInterface):
         # -> shuffle is handled outside of the player now
         # if playlist:
         #     options.append("-playlist")
-
-        bluetooth_manager = wake_pi_up.bluetooth_manager
 
         fade_in = self._last_play_args[1]['fade_in']
         if fade_in:
@@ -78,18 +76,18 @@ class SubprocessAudioPlayer(AudioPlayerInterface):
                 self.status = "playing"
                 log.info("Play of %r is launched !", path)
                 self.sleep_tag = None  # we will set it to True/False later
-                if bluetooth_manager.connected:
-                    # send the music file name to the phone
-                    bluetooth_manager.send(("current_music:%s" % self.format_music_filename(path),
-                                            "current_music_index:%i/%i" % (self._play_index + 1, len(self.queue)),
-                                            "music_pos:0"))
+                # if bluetooth_manager.connected:
+                #     # send the music file name to the phone
+                #     bluetooth_manager.send(("current_music:%s" % self.format_music_filename(path),
+                #                             "current_music_index:%i/%i" % (self._play_index + 1, len(self.queue)),
+                #                             "music_pos:0"))
 
             # wrap p.stdout with a NonBlockingStreamReader object:
             nbsr = NonBlockingStreamReader(p.stdout)
 
             position = None
             while self.current_process is p:
-                for i in xrange(20):
+                for _ in range(20):
                     if self.current_process is not p:  # None if stopped
                         break
                     sleep(0.02)
@@ -107,9 +105,9 @@ class SubprocessAudioPlayer(AudioPlayerInterface):
                         match = self._percent_pos_regex.search(out)
                         if match:
                             pos = int(match.group(1))
-                            if bluetooth_manager.connected and pos != position:
+                            if pos != position:
                                 position = pos
-                                bluetooth_manager.send("music_pos:%s" % position)
+                                # TODO: notify the progression
                 except Exception as poll_exc:
                     log.error(poll_exc)
                     break
