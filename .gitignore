@@ -1,4 +1,5 @@
 .idea
 *.pyc
 *.pyo
+__pycache__
 tags
