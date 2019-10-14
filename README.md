@@ -1,8 +1,8 @@
 # py-audio-player-base
 
-A Python library aiming at easily creating an audio player for your needs.
+This Python library allows to bootstrap an audio player in no time.
 
-Basically you can quickly create a performant player using `FFmpeg` under the hood
+Basically you can quickly create an efficient player using `FFmpeg` under the hood
 (thanks to `PyAv`), with hooks and methods allowing you to do things like:
 
 - Playing local audio files and web streams (web radios ...) (all things supported by `FFmpeg`)
@@ -11,79 +11,6 @@ Basically you can quickly create a performant player using `FFmpeg` under the ho
 - ...
 
 I initially wrote this library to embed it on a Raspberry Pi for my alarm clock project: http://wakepiup.colinguyon.com/.
-
-## Main content
-
-- ``AudioPlayerInterface``: Interface class for an audio player.
-
-    Main methods:
-
-    - ``play``: Play a single file/stream or a whole folder, or a list of files/streams.
-    - ``search_and_play``: Search among a default search dir and play the matching results.
-    - ``play_pause``: Pause if currently playing, else play.
-    - ``play_next``
-    - ``play_prev``
-    - ``stop``
-    - ``seek``
-    - ``set_volume``
-    - ``start_volume_fade_in``
-    - ``stop_volume_fade``
-    - ``remove_current``: Remove the currently played track.
-
-    Main readonly attributes and properties:
-
-    - ``status``: Current play status (`"playing"`, `"paused"`, `"stopped"`)
-    - ``volume``: Current volume level (between 0 and 100)
-    - ``current``: Current playing track path
-    - ``current_display_name``: Current playing track pretty name
-
-    Main hooks / methods to implement in real player classes:
-
-    - ``_do_open_path_for_play``: Open an audio track so that it can be played.
-                                An instance of a class implementing ``PlayObjectInterface``
-                                must be returned, after having called its ``open`` method.
-                                Overriding this method you can also notify the new audio
-                                track name that will be played for example ...
-    - ``_do_open_output``: Open the audio output that will be used to hear the sound
-                            (called before the play queue is started).
-    - ``_do_close_output``: Close the audio output after a playback
-                            (called when the playback is finished, after a manual
-                            stop or the end of a playlist).
-                            The ``_on_playback_stopped`` method is called after
-                            ``_do_close_output`` and can be implemented for things that
-                            are not related to the audio output.
-    - ``_do_write_data_chunk``: Write an audio data chunk to the audio output.
-                                You can also process the data chunk in this method for
-                                example to display a power spectrum using FFT (but do not
-                                do too long actions, otherwise the playback would be degraded).
-    - ``_notify_progression``: Override this method that is regularly called to update
-                                a progress bar for example (not for heavy actions because
-                                called in the playback thread).
-    - ``_on_track_removed``: Called after the ``remove_current`` method has been called,
-                            and has effectively removed a file, for example to also remove
-                            the file path from a database.
-
-- ``PlayObjectInterface``: Interface class for a play object used by a ``AudioPlayerInterface``.
-
-Main implementations that you would certainly like to use:
-
-- ``PyAVPlayObject``: Play object class implenting ``PlayObjectInterface``
-                      and using `PyAV` (that is to say the `FFmpeg` or `libav` lib).
-                      Compared to ``SubprocessDecoderPlayObject`` it allows to
-                      have a much faster seek, and faster track previous/next operations.
-- ``AlsaAudioPlayer``: A player class implementing ``AudioPlayerInterface``
-                       that uses `ALSA` for audio output and volume control.
-
-
-Other implementations (not very well maintained, to be fixed):
-
-- ``SubprocessAudioPlayer``: A player class implementing ``AudioPlayerInterface``
-                             that uses a player in a sub process, such as `mplayer`.
-                             It does not allow to retrieve audio data chunks and process
-                             them.
-- ``SubprocessDecoderPlayObject``: Play object class implenting ``PlayObjectInterface`` and
-                                   using `decoder.py` (https://pypi.org/project/decoder.py/)
-                                   for decoding (it uses lame, avconv or FFmpeg in a subprocess).
 
 ## The most simple usage example
 
@@ -163,6 +90,79 @@ player.search_and_play("some pattern")
 # ...
 player.stop()
 ```
+
+## Main content
+
+- ``AudioPlayerInterface``: Interface class for an audio player.
+
+    Main methods:
+
+    - ``play``: Play a single file/stream or a whole folder, or a list of files/streams.
+    - ``search_and_play``: Search among a default search dir and play the matching results.
+    - ``play_pause``: Pause if currently playing, else play.
+    - ``play_next``
+    - ``play_prev``
+    - ``stop``
+    - ``seek``
+    - ``set_volume``
+    - ``start_volume_fade_in``
+    - ``stop_volume_fade``
+    - ``remove_current``: Remove the currently played track.
+
+    Main readonly attributes and properties:
+
+    - ``status``: Current play status (`"playing"`, `"paused"`, `"stopped"`)
+    - ``volume``: Current volume level (between 0 and 100)
+    - ``current``: Current playing track path
+    - ``current_display_name``: Current playing track pretty name
+
+    Main hooks / methods to implement in real player classes:
+
+    - ``_do_open_path_for_play``: Open an audio track so that it can be played.
+                                An instance of a class implementing ``PlayObjectInterface``
+                                must be returned, after having called its ``open`` method.
+                                Overriding this method you can also notify the new audio
+                                track name that will be played for example ...
+    - ``_do_open_output``: Open the audio output that will be used to hear the sound
+                            (called before the play queue is started).
+    - ``_do_close_output``: Close the audio output after a playback
+                            (called when the playback is finished, after a manual
+                            stop or the end of a playlist).
+                            The ``_on_playback_stopped`` method is called after
+                            ``_do_close_output`` and can be implemented for things that
+                            are not related to the audio output.
+    - ``_do_write_data_chunk``: Write an audio data chunk to the audio output.
+                                You can also process the data chunk in this method for
+                                example to display a power spectrum using FFT (but do not
+                                do too long actions, otherwise the playback would be degraded).
+    - ``_notify_progression``: Override this method that is regularly called to update
+                                a progress bar for example (not for heavy actions because
+                                called in the playback thread).
+    - ``_on_track_removed``: Called after the ``remove_current`` method has been called,
+                            and has effectively removed a file, for example to also remove
+                            the file path from a database.
+
+- ``PlayObjectInterface``: Interface class for a play object used by a ``AudioPlayerInterface``.
+
+Main implementations that you would certainly like to use:
+
+- ``PyAVPlayObject``: Play object class implenting ``PlayObjectInterface``
+                      and using `PyAV` (that is to say the `FFmpeg` or `libav` lib).
+                      Compared to ``SubprocessDecoderPlayObject`` it allows to
+                      have a much faster seek, and faster track previous/next operations.
+- ``AlsaAudioPlayer``: A player class implementing ``AudioPlayerInterface``
+                       that uses `ALSA` for audio output and volume control.
+
+
+Other implementations (not very well maintained, to be fixed):
+
+- ``SubprocessAudioPlayer``: A player class implementing ``AudioPlayerInterface``
+                             that uses a player in a sub process, such as `mplayer`.
+                             It does not allow to retrieve audio data chunks and process
+                             them.
+- ``SubprocessDecoderPlayObject``: Play object class implenting ``PlayObjectInterface`` and
+                                   using `decoder.py` (https://pypi.org/project/decoder.py/)
+                                   for decoding (it uses lame, avconv or FFmpeg in a subprocess).
 
 ## TODO
 
